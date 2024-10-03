@@ -9,23 +9,23 @@ trap 'printf "${YELLOW}\nDownload interrupted. If you re-run the command, you ca
 
 display_help() {
     cat << EOF
-Usage:
+用法：
   hfd <repo_id> [--include include_pattern1 include_pattern2 ...] [--exclude exclude_pattern1 exclude_pattern2 ...] [--hf_username username] [--hf_token token] [--tool aria2c|wget] [-x threads] [--dataset] [--local-dir path] [--aria2c-path path]
-Description:
-  Downloads a model or dataset from Hugging Face using the provided repo ID.
-Parameters:
-  repo_id        The Hugging Face repo ID in the format 'org/repo_name'.
-  --include       (Optional) Flag to specify string patterns to include files for downloading. Supports multiple patterns.
-  --exclude       (Optional) Flag to specify string patterns to exclude files from downloading. Supports multiple patterns.
-  include/exclude_pattern The patterns to match against filenames, supports wildcard characters. e.g., '--exclude *.safetensor *.txt', '--include vae/*'.
-  --hf_username   (Optional) Hugging Face username for authentication. **NOT EMAIL**.
-  --hf_token      (Optional) Hugging Face token for authentication.
-  --tool          (Optional) Download tool to use. Can be aria2c (default) or wget.
-  -x              (Optional) Number of download threads for aria2c. Defaults to 4.
-  --dataset       (Optional) Flag to indicate downloading a dataset.
-  --local-dir     (Optional) Local directory path where the model or dataset will be stored.
-  --aria2c-path   (Optional) Custom path to the aria2c executable.
-Example:
+说明：
+  从 Hugging Face 下载模型或数据集，使用提供的 repo ID。
+参数：
+  repo_id        Hugging Face 的 repo ID，格式为 'org/repo_name'。
+  --include       （可选）指定要包含下载文件的字符串模式。支持多个模式。
+  --exclude       （可选）指定要排除下载文件的字符串模式。支持多个模式。
+  include/exclude_pattern 匹配文件名的模式，支持通配符字符。例如，'--exclude *.safetensor *.txt'，'--include vae/*'。
+  --hf_username   （可选）用于身份验证的 Hugging Face 用户名。**不是邮箱**。
+  --hf_token      （可选）用于身份验证的 Hugging Face 令牌。
+  --tool          （可选）使用的下载工具。可以是 aria2c（默认）或 wget。
+  -x              （可选）aria2c 的下载线程数。默认值为 4。
+  --dataset       （可选）指示下载数据集的标志。
+  --local-dir     （可选）存储模型或数据集的本地目录路径。
+  --aria2c-path   （可选）aria2c 可执行文件的自定义路径。
+示例：
   hfd bigscience/bloom-560m --exclude *.safetensors
   hfd meta-llama/Llama-2-7b --hf_username myuser --hf_token mytoken -x 4
   hfd lavita/medical-qa-shared-task-v1-toy --dataset
