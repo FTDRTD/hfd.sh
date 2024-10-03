@@ -10,23 +10,21 @@ trap 'printf "${YELLOW}\nDownload interrupted. If you re-run the command, you ca
 display_help() {
     cat << EOF
 Usage:
-  hfd <repo_id> [--include include_pattern] [--exclude exclude_pattern] [--hf_username username] [--hf_token token] [--tool aria2c|wget] [-x threads] [--dataset] [--local-dir path]    
-
+  hfd <repo_id> [--include include_pattern1 include_pattern2 ...] [--exclude exclude_pattern1 exclude_pattern2 ...] [--hf_username username] [--hf_token token] [--tool aria2c|wget] [-x threads] [--dataset] [--local-dir path] [--aria2c-path path]
 Description:
   Downloads a model or dataset from Hugging Face using the provided repo ID.
-
 Parameters:
   repo_id        The Hugging Face repo ID in the format 'org/repo_name'.
-  --include       (Optional) Flag to specify a string pattern to include files for downloading.
-  --exclude       (Optional) Flag to specify a string pattern to exclude files from downloading.
-  include/exclude_pattern The pattern to match against filenames, supports wildcard characters. e.g., '--exclude *.safetensor', '--include vae/*'.
+  --include       (Optional) Flag to specify string patterns to include files for downloading. Supports multiple patterns.
+  --exclude       (Optional) Flag to specify string patterns to exclude files from downloading. Supports multiple patterns.
+  include/exclude_pattern The patterns to match against filenames, supports wildcard characters. e.g., '--exclude *.safetensor *.txt', '--include vae/*'.
   --hf_username   (Optional) Hugging Face username for authentication. **NOT EMAIL**.
   --hf_token      (Optional) Hugging Face token for authentication.
   --tool          (Optional) Download tool to use. Can be aria2c (default) or wget.
   -x              (Optional) Number of download threads for aria2c. Defaults to 4.
   --dataset       (Optional) Flag to indicate downloading a dataset.
   --local-dir     (Optional) Local directory path where the model or dataset will be stored.
-
+  --aria2c-path   (Optional) Custom path to the aria2c executable.
 Example:
   hfd bigscience/bloom-560m --exclude *.safetensors
   hfd meta-llama/Llama-2-7b --hf_username myuser --hf_token mytoken -x 4
@@ -42,17 +40,34 @@ shift
 TOOL="aria2c"
 THREADS=4
 HF_ENDPOINT=${HF_ENDPOINT:-"https://huggingface.co"}
+ARIA2C_PATH=""
+
+INCLUDE_PATTERNS=()
+EXCLUDE_PATTERNS=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --include) INCLUDE_PATTERN="$2"; shift 2 ;;
-        --exclude) EXCLUDE_PATTERN="$2"; shift 2 ;;
+        --include)
+            shift
+            while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
+                INCLUDE_PATTERNS+=("$1")
+                shift
+            done
+            ;;
+        --exclude)
+            shift
+            while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
+                EXCLUDE_PATTERNS+=("$1")
+                shift
+            done
+            ;;
         --hf_username) HF_USERNAME="$2"; shift 2 ;;
         --hf_token) HF_TOKEN="$2"; shift 2 ;;
         --tool) TOOL="$2"; shift 2 ;;
         -x) THREADS="$2"; shift 2 ;;
         --dataset) DATASET=1; shift ;;
         --local-dir) LOCAL_DIR="$2"; shift 2 ;;
+        --aria2c-path) ARIA2C_PATH="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -73,7 +88,7 @@ ensure_ownership() {
     fi
 }
 
-[[ "$TOOL" == "aria2c" ]] && check_command aria2c
+[[ "$TOOL" == "aria2c" ]] && check_command "${ARIA2C_PATH:-aria2c}"
 [[ "$TOOL" == "wget" ]] && check_command wget
 check_command curl; check_command git; check_command git-lfs
 
@@ -122,6 +137,26 @@ printf "\nStart Downloading lfs files, bash script:\ncd $LOCAL_DIR\n"
 files=$(git lfs ls-files | cut -d ' ' -f 3-)
 declare -a urls
 
+file_matches_include_patterns() {
+    local file="$1"
+    for pattern in "${INCLUDE_PATTERNS[@]}"; do
+        if [[ "$file" == $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+file_matches_exclude_patterns() {
+    local file="$1"
+    for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+        if [[ "$file" == $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 while IFS= read -r file; do
     url="$HF_ENDPOINT/$MODEL_ID/resolve/main/$file"
     file_dir=$(dirname "$file")
@@ -130,11 +165,19 @@ while IFS= read -r file; do
         download_cmd="wget -c \"$url\" -O \"$file\""
         [[ -n "$HF_TOKEN" ]] && download_cmd="wget --header=\"Authorization: Bearer ${HF_TOKEN}\" -c \"$url\" -O \"$file\""
     else
-        download_cmd="/root/aria2c --console-log-level=error --file-allocation=none -x $THREADS -s $THREADS -k 1M -c \"$url\" -d \"$file_dir\" -o \"$(basename "$file")\""
-        [[ -n "$HF_TOKEN" ]] && download_cmd="aria2c --header=\"Authorization: Bearer ${HF_TOKEN}\" --console-log-level=error --file-allocation=none -x $THREADS -s $THREADS -k 1M -c \"$url\" -d \"$file_dir\" -o \"$(basename "$file")\""
+        ARIA2C_CMD="${ARIA2C_PATH:-aria2c}"
+        download_cmd="$ARIA2C_CMD --console-log-level=error --file-allocation=none -x $THREADS -s $THREADS -k 1M -c \"$url\" -d \"$file_dir\" -o \"$(basename "$file")\""
+        [[ -n "$HF_TOKEN" ]] && download_cmd="$ARIA2C_CMD --header=\"Authorization: Bearer ${HF_TOKEN}\" --console-log-level=error --file-allocation=none -x $THREADS -s $THREADS -k 1M -c \"$url\" -d \"$file_dir\" -o \"$(basename "$file")\""
     fi
-    [[ -n "$INCLUDE_PATTERN" && ! "$file" == $INCLUDE_PATTERN ]] && printf "# %s\n" "$download_cmd" && continue
-    [[ -n "$EXCLUDE_PATTERN" && "$file" == $EXCLUDE_PATTERN ]] && printf "# %s\n" "$download_cmd" && continue
+
+    if [[ ${#INCLUDE_PATTERNS[@]} -gt 0 ]]; then
+        file_matches_include_patterns "$file" || { printf "# %s\n" "$download_cmd"; continue; }
+    fi
+
+    if [[ ${#EXCLUDE_PATTERNS[@]} -gt 0 ]]; then
+        file_matches_exclude_patterns "$file" && { printf "# %s\n" "$download_cmd"; continue; }
+    fi
+
     printf "%s\n" "$download_cmd"
     urls+=("$url|$file")
 done <<< "$files"
